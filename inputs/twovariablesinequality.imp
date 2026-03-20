@@ -1,0 +1,40 @@
+class twovariablesinequality {
+    basic(){
+        def x = 1;
+        def y = x + 1;
+        def z = 2*x + 1;
+        if((3*x+2*y) <= 5){
+            def d=3;
+        }else {
+            def d=4;
+        }
+        if(x <= y){
+            def d=3;
+        }else{ 
+            def d=4;
+        }
+    }
+    closure(){
+        def x = 1;
+        def y = 1;
+        if((3*x+2*y) <= 3){
+            if(3*x+2*y <=0){
+                def d=2;
+            }else{
+                def d=3;
+            }
+            def z=4;
+        } else {
+            if((3*x+2*y <= (-5))){
+                def d=3;
+            }
+        }
+        
+    }  
+    transitivity(){
+        def x= 1 ;
+        def y= -1*x+1 ; // y+x <= 1
+        def z= x+3; // z-x<= 3
+    }
+ 
+}
