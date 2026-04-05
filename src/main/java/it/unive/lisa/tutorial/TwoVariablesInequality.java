@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,10 +67,14 @@ public class TwoVariablesInequality
     }
 
     public boolean knowsIdentifier(Identifier identifier) {
-        return false; 
+        return vars().contains(identifier);
     }
     public TwoVariablesInequality forgetIdentifiersIf(Predicate<Identifier> predicate) throws SemanticException {
-        return this;
+        TwoVariablesInequality result = this;
+        for (Identifier id : new HashSet<>(vars()))
+            if (predicate.test(id))
+                result = result.forgetIdentifier(id);
+        return result;
     }
     public TwoVariablesInequality pushScope(ScopeToken scopeToken) throws SemanticException {
         return this;
@@ -87,73 +90,130 @@ public class TwoVariablesInequality
             return new StringRepresentation("BOTTOM");
         return new StringRepresentation(toString());
     }
+
+    private String coefficientsKey(LinearInequality ineq) {
+        List<String> terms = new ArrayList<>();
+        for (Map.Entry<Identifier, Double> entry : ineq.coefficients.entrySet())
+            terms.add(entry.getKey().getName() + ":" + entry.getValue());
+        Collections.sort(terms);
+        return String.join(";", terms);
+    }
+
+    private boolean isProportional(Map<Identifier, Double> lhs, Map<Identifier, Double> rhs) {
+        if (lhs.size() != rhs.size())
+            return false;
+        Double ratio = null;
+        for (Map.Entry<Identifier, Double> entry : lhs.entrySet()) {
+            Double rightCoef = rhs.get(entry.getKey());
+            if (rightCoef == null)
+                return false;
+            if (Math.abs(rightCoef) < 1e-9)
+                return false;
+            double currentRatio = entry.getValue() / rightCoef;
+            if (currentRatio <= 0)
+                return false;
+            if (ratio == null)
+                ratio = currentRatio;
+            else if (Math.abs(ratio - currentRatio) > 1e-9)
+                return false;
+        }
+        return ratio != null;
+    }
+
+    private boolean implies(LinearInequality stronger, LinearInequality weaker) {
+        if (stronger.coefficients.equals(weaker.coefficients))
+            return stronger.constant <= weaker.constant;
+
+        if (!isProportional(stronger.coefficients, weaker.coefficients))
+            return false;
+
+        Identifier first = weaker.coefficients.keySet().iterator().next();
+        double scale = stronger.coefficients.get(first) / weaker.coefficients.get(first);
+        return stronger.constant <= scale * weaker.constant + 1e-9;
+    }
+
+    private boolean isEntailedBy(LinearInequality target, Set<LinearInequality> constraints) {
+        for (LinearInequality candidate : constraints)
+            if (implies(candidate, target))
+                return true;
+        return false;
+    }
+
+    private TwoVariablesInequality withAddedInequality(LinearInequality inequality) {
+        if (isBottom() || inequality == null)
+            return this;
+        Set<LinearInequality> updated = new HashSet<>(inequalities);
+        updated.add(inequality);
+        return new TwoVariablesInequality(closureGlb(removeDuplicates(updated)));
+    }
+
+    private LinearInequality parseLeq(ValueExpression expression) {
+        if (!(expression instanceof BinaryExpression))
+            return null;
+
+        BinaryExpression binaryExpression = (BinaryExpression) expression;
+        if (!(binaryExpression.getOperator() instanceof ComparisonLe))
+            return null;
+
+        SymbolicExpression left = binaryExpression.getLeft();
+        SymbolicExpression right = binaryExpression.getRight();
+
+        if (left instanceof Identifier && right instanceof Identifier) {
+            Map<Identifier, Double> coefficients = new HashMap<>();
+            coefficients.put((Identifier) left, 1.0);
+            coefficients.put((Identifier) right, -1.0);
+            return new LinearInequality(coefficients, 0.0);
+        }
+
+        if (!(right instanceof Constant))
+            return null;
+
+        Object rightValue = ((Constant) right).getValue();
+        if (!(rightValue instanceof Integer))
+            return null;
+
+        double constant = ((Integer) rightValue).doubleValue();
+        if (!(left instanceof BinaryExpression))
+            return null;
+
+        BinaryExpression leftExpr = (BinaryExpression) left;
+        if (!(leftExpr.getOperator() instanceof AdditionOperator)
+                || !(leftExpr.getLeft() instanceof BinaryExpression)
+                || !(leftExpr.getRight() instanceof BinaryExpression))
+            return null;
+
+        BinaryExpression axExpr = (BinaryExpression) leftExpr.getLeft();
+        BinaryExpression byExpr = (BinaryExpression) leftExpr.getRight();
+        if (!(axExpr.getOperator() instanceof MultiplicationOperator)
+                || !(byExpr.getOperator() instanceof MultiplicationOperator)
+                || !(axExpr.getLeft() instanceof Constant)
+                || !(axExpr.getRight() instanceof Identifier)
+                || !(byExpr.getLeft() instanceof Constant)
+                || !(byExpr.getRight() instanceof Identifier))
+            return null;
+
+        Object aValue = ((Constant) axExpr.getLeft()).getValue();
+        Object bValue = ((Constant) byExpr.getLeft()).getValue();
+        if (!(aValue instanceof Integer) || !(bValue instanceof Integer))
+            return null;
+
+        Map<Identifier, Double> coefficients = new HashMap<>();
+        coefficients.put((Identifier) axExpr.getRight(), ((Integer) aValue).doubleValue());
+        coefficients.put((Identifier) byExpr.getRight(), ((Integer) bValue).doubleValue());
+        return new LinearInequality(coefficients, constant);
+    }
+
     @Override
     public TwoVariablesInequality assume(
         ValueExpression expression,
         ProgramPoint src,
         ProgramPoint dest,
         SemanticOracle oracle) throws SemanticException {
-        if (!(expression instanceof BinaryExpression))
+        if (isBottom())
             return this;
 
-        // todo handle ! (<=)
-        BinaryExpression binaryExpression = (BinaryExpression) expression;
-        if(!(binaryExpression.getOperator() instanceof ComparisonLe))
-            return this;
-        SymbolicExpression left = binaryExpression.getLeft();
-        SymbolicExpression right = binaryExpression.getRight();
-        
-        // Extraire les coefficients et constantes
-        Map<Identifier, Double> coefficients = new HashMap<>();
-        double constant = 0.0;
-        if(left instanceof Identifier  && right instanceof Identifier){
-            // On veut que la forme soit x <= y => soit transformé vers 
-            // create the form for  x - y <= 0
-            Identifier x = (Identifier) left;
-            Identifier y = (Identifier) right;
-            coefficients.put(x, 1.0);
-            coefficients.put(y, -1.0);
-            LinearInequality inequality = new LinearInequality(coefficients, constant);
-            Set<LinearInequality> res = new HashSet<>(this.inequalities);
-            if(inequality!=null){
-                res.add(inequality);
-            }
-            System.out.println("Assuming: " + inequality.toString());
-            System.out.println("Having: " + toString());
-            return new TwoVariablesInequality(closureGlb(res));
-        }
-        // extract a, x and b from left and c from left 
-        if (left instanceof BinaryExpression && right instanceof Constant) {
-            constant = ((Integer)((Constant) right).getValue());
-            BinaryExpression leftExpr = (BinaryExpression) left;
-            if (leftExpr.getOperator() instanceof AdditionOperator && leftExpr.getLeft() instanceof BinaryExpression && leftExpr.getRight() instanceof BinaryExpression) {
-                // try extract a and b, x and y
-                SymbolicExpression ax = leftExpr.getLeft();
-                SymbolicExpression by = leftExpr.getRight();
-                BinaryExpression axExpr = (BinaryExpression) ax;
-                BinaryExpression byExpr = (BinaryExpression) by;
-                if(axExpr.getOperator() instanceof MultiplicationOperator && byExpr.getOperator() instanceof MultiplicationOperator && axExpr.getLeft() instanceof Constant && axExpr.getRight() instanceof Identifier) {
-                    SymbolicExpression a = axExpr.getLeft();
-                    SymbolicExpression x = axExpr.getRight();
-                    SymbolicExpression b = byExpr.getLeft();
-                    SymbolicExpression y = byExpr.getRight();
-                    coefficients.put((Identifier) y, ((Integer)((Constant) b).getValue()).doubleValue());
-                    coefficients.put((Identifier) x, ((Integer)((Constant) a).getValue()).doubleValue());
-                    LinearInequality inequality = new LinearInequality(coefficients, constant);
-                    Set<LinearInequality> res = new HashSet<>(this.inequalities);
-                    if(inequality!=null){
-                        res.add(inequality);
-                    }
-                    System.out.println("Assuming: " + inequality.toString());
-                    System.out.println("Having: " + toString());
-                    // return bottom();
-                    return new TwoVariablesInequality(closureGlb(res));
-                } 
-                
-                
-            }
-        }
-        return this; 
+        LinearInequality inequality = parseLeq(expression);
+        return withAddedInequality(inequality);
     }
     public static boolean isSpecialIdentifier(Identifier id) {
         return id.toString().contains("heap") || id.toString().contains("this") || id.toString().contains("&pp@");
@@ -168,22 +228,19 @@ public class TwoVariablesInequality
             coefficients.put(identifier, 1.0);
             coefficients.put(id, -1.0);
             LinearInequality inequality = new LinearInequality(coefficients, 0.0);
-            Set<LinearInequality> res = new HashSet<>(this.inequalities);
-            res.add(inequality);
-            System.out.println("Assigning: " + inequality.toString());
-            System.out.println("Having: " + toString());
-            return new TwoVariablesInequality(closureGlb(res));
+            return withAddedInequality(inequality);
         }
         if(valueExpression instanceof Constant){
             Constant c = (Constant) valueExpression;
+            if (!(c.getValue() instanceof Integer))
+                return this;
             Map<Identifier, Double> coefficients = new HashMap<>();
             coefficients.put(identifier, 1.0);
             LinearInequality inequality = new LinearInequality(coefficients, (Integer)(c.getValue()));
-            Set<LinearInequality> res = new HashSet<>(this.inequalities);
-            res.add(inequality);
-            System.out.println("Assigning: " + inequality.toString());
-            System.out.println("Having: " + toString());
-            return new TwoVariablesInequality(closureGlb(res));
+            Map<Identifier, Double> reverse = new HashMap<>();
+            reverse.put(identifier, -1.0);
+            LinearInequality dual = new LinearInequality(reverse, -((Integer) c.getValue()));
+            return withAddedInequality(inequality).withAddedInequality(dual);
         }
         if(valueExpression instanceof BinaryExpression){
             BinaryExpression binaryExpression = (BinaryExpression) valueExpression;
@@ -197,11 +254,11 @@ public class TwoVariablesInequality
                 coefficients.put(identifier, 1.0);
                 coefficients.put(y, -1.0);
                 LinearInequality inequality = new LinearInequality(coefficients, (Integer)(c.getValue()));
-                Set<LinearInequality> res = new HashSet<>(this.inequalities);
-                res.add(inequality);
-                System.out.println("Assigning: " + inequality.toString());
-                System.out.println("Having: " + toString());
-                return new TwoVariablesInequality(closureGlb(res));
+                Map<Identifier, Double> reverse = new HashMap<>();
+                reverse.put(y, 1.0);
+                reverse.put(identifier, -1.0);
+                LinearInequality dual = new LinearInequality(reverse, -((Integer) c.getValue()));
+                return withAddedInequality(inequality).withAddedInequality(dual);
             }
             // handle the case of x = b*y + c
             if(binaryExpression.getOperator() instanceof AdditionOperator &&  binaryExpression.getRight() instanceof Constant){
@@ -217,11 +274,7 @@ public class TwoVariablesInequality
                         coefficients.put(identifier, 1.0);
                         coefficients.put(y, -((Integer)b.getValue()).doubleValue());
                         LinearInequality inequality = new LinearInequality(coefficients, (Integer)(c.getValue()));
-                        Set<LinearInequality> res = new HashSet<>(this.inequalities);
-                        res.add(inequality);
-                        System.out.println("Assigning: " + inequality.toString());
-                        System.out.println("Having: " + toString());
-                        return new TwoVariablesInequality(closureGlb(res));
+                        return withAddedInequality(inequality);
                     }
                 }
                 
@@ -340,15 +393,7 @@ public class TwoVariablesInequality
         // Regrouper par coefficients et garder seulement l'inégalité la plus restrictive
         // exemple si tu sais que x <= 5 et x <= 10, tu gardes x <= 5 
         for (LinearInequality ineq : result) {
-            // Créer une clé représentant la structure des coefficients
-            StringBuilder keyBuilder = new StringBuilder();
-            for (Map.Entry<Identifier, Double> entry : ineq.coefficients.entrySet()) {
-                keyBuilder.append(entry.getKey().getName())
-                        .append(":")
-                        .append(entry.getValue())
-                        .append(";");
-            }
-            String key = keyBuilder.toString();
+            String key = coefficientsKey(ineq);
             // Conserver seulement l'inégalité avec la plus grande constante
             if (!coeffToIneq.containsKey(key) || coeffToIneq.get(key).constant <= ineq.constant) {
                 coeffToIneq.put(key, ineq);
@@ -364,15 +409,7 @@ public class TwoVariablesInequality
         // Regrouper par coefficients et garder seulement l'inégalité la plus restrictive
         // exemple si tu sais que x <= 5 et x <= 10, tu gardes x <= 5 
         for (LinearInequality ineq : result) {
-            // Créer une clé représentant la structure des coefficients
-            StringBuilder keyBuilder = new StringBuilder();
-            for (Map.Entry<Identifier, Double> entry : ineq.coefficients.entrySet()) {
-                keyBuilder.append(entry.getKey().getName())
-                        .append(":")
-                        .append(entry.getValue())
-                        .append(";");
-            }
-            String key = keyBuilder.toString();
+            String key = coefficientsKey(ineq);
             // Conserver seulement l'inégalité avec la plus grande constante
             if (!coeffToIneq.containsKey(key) || coeffToIneq.get(key).constant > ineq.constant) {
                 coeffToIneq.put(key, ineq);
@@ -386,15 +423,27 @@ public class TwoVariablesInequality
     }
     @Override
     public boolean lessOrEqual(TwoVariablesInequality other) throws SemanticException {
-        return false;
+        if (isBottom())
+            return true;
+        if (other.isBottom())
+            return false;
+        if (other.isTop())
+            return true;
+        if (isTop())
+            return false;
+
+        Set<LinearInequality> thisClosed = closureGlb(removeDuplicates(new HashSet<>(inequalities)));
+        Set<LinearInequality> otherClosed = closureGlb(removeDuplicates(new HashSet<>(other.inequalities)));
+        for (LinearInequality target : otherClosed)
+            if (!isEntailedBy(target, thisClosed))
+                return false;
+        return true;
     }
     @Override
     public TwoVariablesInequality lub(TwoVariablesInequality other) throws SemanticException {
         // union est l'intersection des deux ensembles 
-        if(isTop())
-            return other;
-        if(other.isTop())
-            return this;
+        if(isTop() || other.isTop())
+            return TOP;
         if(isBottom())
             return other;
         if(other.isBottom())
@@ -488,9 +537,20 @@ public class TwoVariablesInequality
             }
             return result;
         }
-        public boolean equals(LinearInequality other) {
-            if (this == other) return true;
-            return coefficients.equals(other.coefficients) && constant == other.constant;
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (!(obj instanceof LinearInequality))
+                return false;
+            LinearInequality other = (LinearInequality) obj;
+            return coefficients.equals(other.coefficients) && Double.compare(constant, other.constant) == 0
+                    && lessOrEqual == other.lessOrEqual;
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(coefficients, constant, lessOrEqual);
         }
      
 
@@ -498,8 +558,10 @@ public class TwoVariablesInequality
         public String toString() {
             StringBuilder sb = new StringBuilder();
             boolean first = true;
-            
-            for (Map.Entry<Identifier, Double> entry : coefficients.entrySet()) {
+
+            List<Map.Entry<Identifier, Double>> entries = new ArrayList<>(coefficients.entrySet());
+            entries.sort((a, b) -> a.getKey().getName().compareTo(b.getKey().getName()));
+            for (Map.Entry<Identifier, Double> entry : entries) {
                 double coef = entry.getValue();
                 if (!first && coef > 0) sb.append(" + ");
                 else if (!first) sb.append(" - ");
@@ -523,18 +585,36 @@ public class TwoVariablesInequality
 
 
     public TwoVariablesInequality close() {
-        TwoVariablesInequality result = this;
-       
-        return result;
+        if (isTop() || isBottom())
+            return this;
+        return new TwoVariablesInequality(closureGlb(removeDuplicates(new HashSet<>(inequalities))));
     }
     public TwoVariablesInequality forgetIdentifier(Identifier identifier) throws SemanticException {
-        TwoVariablesInequality result = this;
-        
-        return result;
+        if (isTop() || isBottom())
+            return this;
+
+        Set<LinearInequality> filtered = new HashSet<>();
+        for (LinearInequality inequality : inequalities)
+            if (!inequality.var().contains(identifier))
+                filtered.add(inequality);
+
+        return filtered.isEmpty() ? TOP : new TwoVariablesInequality(closureGlb(removeDuplicates(filtered)));
     }
 
     public Satisfiability satisfies(ValueExpression expression, ProgramPoint pp, SemanticOracle oracle)
             throws SemanticException {
+        if (isBottom())
+            return Satisfiability.BOTTOM;
+        if (isTop())
+            return Satisfiability.UNKNOWN;
+
+        LinearInequality queried = parseLeq(expression);
+        if (queried == null)
+            return Satisfiability.UNKNOWN;
+
+        Set<LinearInequality> closed = closureGlb(removeDuplicates(new HashSet<>(inequalities)));
+        if (isEntailedBy(queried, closed))
+            return Satisfiability.SATISFIED;
         return Satisfiability.UNKNOWN;
     }
 

@@ -20,6 +20,8 @@ import it.unive.lisa.symbolic.value.operator.unary.UnaryOperator;
 import it.unive.lisa.util.representation.StringRepresentation;
 import it.unive.lisa.util.representation.StructuredRepresentation;
 
+import java.util.Objects;
+
 public class ExtendedSigns implements BaseNonRelationalValueDomain<ExtendedSigns> {
 
     public static final ExtendedSigns BOTTOM = new ExtendedSigns(Integer.MIN_VALUE);
@@ -31,7 +33,7 @@ public class ExtendedSigns implements BaseNonRelationalValueDomain<ExtendedSigns
     public static final ExtendedSigns POSITIVE = new ExtendedSigns(3);
     public static final ExtendedSigns TOP = new ExtendedSigns(Integer.MAX_VALUE);
     public int sign;
-    public int value; 
+
     public ExtendedSigns() {
         this.sign = Integer.MAX_VALUE;
     }
@@ -50,43 +52,87 @@ public class ExtendedSigns implements BaseNonRelationalValueDomain<ExtendedSigns
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o)
+            return true;
+        if (o == null || getClass() != o.getClass())
+            return false;
+        ExtendedSigns that = (ExtendedSigns) o;
+        return sign == that.sign;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(sign);
+    }
+
+    private int mask() {
+        if (sign == Integer.MIN_VALUE)
+            return 0;
+        if (sign == -1)
+            return 1;
+        if (sign == 0)
+            return 2;
+        if (sign == -2)
+            return 3;
+        if (sign == 1)
+            return 4;
+        if (sign == 2)
+            return 5;
+        if (sign == 3)
+            return 6;
+        return 7;
+    }
+
+    private static ExtendedSigns fromMask(int mask) {
+        switch (mask) {
+            case 0:
+                return BOTTOM;
+            case 1:
+                return STRICTLY_NEGATIVE;
+            case 2:
+                return ZERO;
+            case 3:
+                return NEGATIVE;
+            case 4:
+                return STRICTLY_POSITIVE;
+            case 5:
+                return NON_ZERO;
+            case 6:
+                return POSITIVE;
+            default:
+                return TOP;
+        }
+    }
+
+    @Override
     public boolean lessOrEqualAux(ExtendedSigns other) {
-        // return this.equals(other) || other == TOP;
-        return false;
+        return (mask() & ~other.mask()) == 0;
     }
 
     @Override
     public ExtendedSigns lubAux(ExtendedSigns other) {
-        // if (this.equals(other)) return this;
-        if(this == TOP || other == TOP) return TOP;
-        if(this == BOTTOM || other == BOTTOM) return BOTTOM;
-        if(this == ZERO) {
-            if(other == ZERO) return ZERO;
-            if(other == STRICTLY_POSITIVE) return POSITIVE;
-            if(other == STRICTLY_NEGATIVE) return NEGATIVE;
-            return other;
-        }
-        if(other == ZERO) {
-            if(this == ZERO) return ZERO;
-            if(this == STRICTLY_POSITIVE) return POSITIVE;
-            if(this == STRICTLY_NEGATIVE) return NEGATIVE;
-            return this;
-        }
-        if(this == NEGATIVE && other == STRICTLY_NEGATIVE || this == STRICTLY_NEGATIVE && other == NEGATIVE) return NEGATIVE;
-        if(this == POSITIVE && other == STRICTLY_POSITIVE || this == STRICTLY_POSITIVE && other == POSITIVE) return POSITIVE;
-        return TOP;
+        return fromMask(mask() | other.mask());
     }
 
     @Override
     public StructuredRepresentation representation() {
-        if (this == TOP) return Lattice.topRepresentation();
-        if (this == BOTTOM) return Lattice.bottomRepresentation();
-        if (this == POSITIVE) return new StringRepresentation(">= 0");
-        if (this == STRICTLY_POSITIVE) return new StringRepresentation("> 0");
-        if (this == NEGATIVE) return new StringRepresentation("<= 0");
-        if (this == STRICTLY_NEGATIVE) return new StringRepresentation("< 0");
-        if (this == ZERO) return new StringRepresentation("0");
-        if (this == NON_ZERO) return new StringRepresentation("!= 0");
+        if (sign == Integer.MAX_VALUE)
+            return Lattice.topRepresentation();
+        if (sign == Integer.MIN_VALUE)
+            return Lattice.bottomRepresentation();
+        if (sign == 3)
+            return new StringRepresentation(">= 0");
+        if (sign == 1)
+            return new StringRepresentation("> 0");
+        if (sign == -2)
+            return new StringRepresentation("<= 0");
+        if (sign == -1)
+            return new StringRepresentation("< 0");
+        if (sign == 0)
+            return new StringRepresentation("0");
+        if (sign == 2)
+            return new StringRepresentation("!= 0");
         return new StringRepresentation("?");
     }
 
@@ -130,8 +176,8 @@ public class ExtendedSigns implements BaseNonRelationalValueDomain<ExtendedSigns
         if(left == STRICTLY_POSITIVE) 
             return right == ZERO ? NEGATIVE : STRICTLY_NEGATIVE;
         if(left == STRICTLY_NEGATIVE)
-            return right == ZERO ? POSITIVE : STRICTLY_NEGATIVE;
-        // todo continue with other cases 
+            return right == ZERO ? POSITIVE : STRICTLY_POSITIVE;
+        // Conservative fallback for mixed-sign abstractions.
         return left.negate();
     }
     @Override
@@ -146,13 +192,13 @@ public class ExtendedSigns implements BaseNonRelationalValueDomain<ExtendedSigns
         if(operator instanceof ComparisonLe){
             if(left instanceof Variable && right instanceof Constant) {
                 Variable x = (Variable) left;
-                ExtendedSigns xValue = environment.getState(x);
-                ExtendedSigns yValue = eval(right,environment,src,oracle);
-                System.err.println("xValue: " + xValue.representation() + " yValue: " + yValue.representation());
-                if(xValue.isTop()) 
-                    return environment;
-                System.err.println("Assuming x to be  "+xValue.lubAux(yValue).representation());
-                return environment.putState(x,xValue.lubAux(yValue));
+                Object c = ((Constant) right).getValue();
+                if (c instanceof Integer) {
+                    int value = (Integer) c;
+                    ExtendedSigns bound = value < 0 ? STRICTLY_NEGATIVE : (value == 0 ? NEGATIVE : TOP);
+                    ExtendedSigns current = environment.getState(x);
+                    return environment.putState(x, current.glb(bound));
+                }
             }
         }
         return BaseNonRelationalValueDomain.super.assumeBinaryExpression(environment, operator, left, right, src, dest, oracle);

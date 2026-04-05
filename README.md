@@ -1,6 +1,6 @@
 # TAS-Semantique
 
-Projet universitaire de travaux pratiques autour de l'analyse statique abstraite avec LiSA.
+Projet universitaire autour de l'analyse statique abstraite avec LiSA.
 
 ## Auteurs
 
@@ -9,9 +9,7 @@ Projet universitaire de travaux pratiques autour de l'analyse statique abstraite
 
 ## Conformite Au Sujet TAS 2026
 
-Sujet impose: implementer 1 domaine non relationnel + 1 domaine relationnel + leur produit cartesien.
-
-Choix retenu pour le rendu officiel:
+Choix retenu pour le rendu :
 
 - Domaine non relationnel: Extended sign domain
   - Classe: src/main/java/it/unive/lisa/tutorial/ExtendedSigns.java
@@ -242,15 +240,25 @@ Points forts:
 
 Limites actuelles (etat du code, pas du concept):
 
-- Certains domaines sont partiellement implementes:
-  - ExtendedSigns.lessOrEqualAux retourne toujours false.
-  - TwoVariablesInequality.lessOrEqual retourne false.
-  - TwoVariablesInequality.forgetIdentifier et close sont no-op.
-  - NotEqualsDomain.satisfies reste UNKNOWN.
-- Presence de traces System.out/System.err dans certaines analyses (debug brut).
-- Deux implementations proches d'intervalles coexistent (Intervalles et Interval).
+- Limites encore ouvertes:
+  - Le parsing des contraintes de TwoVariablesInequality couvre les motifs principaux du sujet (x<=y et a*x+b*y<=c), mais pas toutes les formes syntactiques possibles.
+  - NotEqualsDomain.satisfies reste UNKNOWN (hors perimetre du rendu TAS 2026 retenu).
+  - Deux implementations proches d'intervalles coexistent (Intervalles et Interval).
 
-Ces limites n'empechent pas les executions, mais elles impactent la precision semantique ou la completion du domaine.
+Ameliorations integrees dans ce rendu:
+
+- ExtendedSigns:
+  - lessOrEqualAux et lubAux completes selon une relation d'ordre coherente du treillis.
+  - assume sur x <= c raffine l'etat via glb (au lieu d'elargir).
+- TwoVariablesInequality:
+  - lessOrEqual implemente via fermeture + verification d'entailment des contraintes.
+  - close et forgetIdentifier implementes (forget via projection conservative).
+  - satisfies retourne SATISFIED quand la contrainte est entaillee, sinon UNKNOWN.
+  - Suppression des traces System.out/System.err de debug.
+- Validation:
+  - Ajout de tests d'algebre avec assertions pour les deux domaines cibles:
+    - src/test/java/it/unive/lisa/tutorial/ExtendedSignsAlgebraTest.java
+    - src/test/java/it/unive/lisa/tutorial/TwoVariablesInequalityAlgebraTest.java
 
 ## 8) Organisation Du Depot
 
@@ -274,28 +282,28 @@ Ces limites n'empechent pas les executions, mais elles impactent la precision se
 Executer toute la suite:
 
 ```bat
-gradlew.bat test
+.\gradlew.bat test
 ```
 
 Executer un seul test:
 
 ```bat
-gradlew.bat test --tests it.unive.lisa.tutorial.TaintTest
+.\gradlew.bat test --tests it.unive.lisa.tutorial.TaintTest
 ```
 
 Nettoyer puis relancer:
 
 ```bat
-gradlew.bat clean test
+.\gradlew.bat clean test
 ```
 
 ## 10) Pistes D'amelioration
 
-1. Completer lessOrEqual/satisfies/forget pour les domaines partiels.
-2. Remplacer les prints de debug par un logging structure.
-3. Ajouter des assertions automatiques sur les resultats analyses (pas seulement execution).
-4. Factoriser la configuration commune des tests pour reduire la duplication.
-5. Documenter les invariants mathematiques de closure/transitivity dans TwoVariablesInequality.
+1. Etendre le parser des contraintes 2VPI a d'autres formes IMP (normalisation plus generale).
+2. Ajouter des tests de precision compares: domaine seul vs produit cartesien sur un meme programme.
+3. Factoriser la configuration commune des tests LiSA pour reduire la duplication.
+4. Documenter davantage les invariants mathematiques de completion/transitivity par rapport a l'article 2VPI.
+5. Ajouter une strategie de widening explicite pour borner la taille des contraintes par projection (discussion paper-oriented).
 
 ## 11) Credits Et Licence
 
