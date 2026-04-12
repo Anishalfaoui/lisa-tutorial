@@ -258,6 +258,7 @@ Ameliorations integrees dans ce rendu:
   - assume-parsing généralisé: Les expressions linéaires de part et d'autre de <= sont normalisées (+, -, negation, multiplication par constante), avec conservation de la limite à 2 variables.
   - état rendu immutable/private: top, bottom, inequalities et LinearInequality sont passés en private final avec collections immuables.
   - La Closure passe en point fixe iteratif (avec borne d'iterations) pour mieux propager la transitivité avant stabilisation.
+  - smallStepSemantics() implementé: canonicalisation de l'état et verification des contradictions vers BOTTOM sans sur-raffinement des conditions.
   - close et forgetIdentifier implementes (forget via projection conservative).
   - satisfies retourne SATISFIED quand la contrainte est entaillée, sinon UNKNOWN.
   - Suppression des traces System.out/System.err de debug.

@@ -567,8 +567,16 @@ public class TwoVariablesInequality
         return new HashSet<>(coeffToIneq.values());
     }
     public TwoVariablesInequality smallStepSemantics(ValueExpression valueExpression, ProgramPoint programPoint, SemanticOracle semanticOracle) throws SemanticException {
-        // Handle different types of expressions
-        return this;
+        if (isTop() || isBottom())
+            return this;
+
+        Set<LinearInequality> normalized = removeDuplicates(new HashSet<>(inequalities));
+        if (hasContradiction(normalized))
+            return BOTTOM;
+        if (normalized.equals(inequalities))
+            return this;
+
+        return new TwoVariablesInequality(normalized);
     }
     @Override
     public boolean lessOrEqual(TwoVariablesInequality other) throws SemanticException {
