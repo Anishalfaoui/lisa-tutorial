@@ -38,6 +38,7 @@ public class TwoVariablesInequality
 		
 		implements ValueDomain<TwoVariablesInequality> {
         private static final double EPSILON = 1e-9;
+    private static final int MAX_CLOSURE_FIXPOINT_ITERATIONS = 8;
     public static final TwoVariablesInequality TOP = new TwoVariablesInequality(true);
     public static final TwoVariablesInequality BOTTOM = new TwoVariablesInequality(false);
     private final boolean top;
@@ -453,26 +454,29 @@ public class TwoVariablesInequality
         }
         return result;
     }
+
+    private Set<LinearInequality> closureFixpoint(Set<LinearInequality> inequalities, boolean glbClosure) {
+        Set<LinearInequality> current = removeDuplicates(new HashSet<>(inequalities));
+        current = glbClosure ? glbLinearInequality(current) : lubLinearInequality(current);
+
+        for (int iteration = 0; iteration < MAX_CLOSURE_FIXPOINT_ITERATIONS; iteration++) {
+            Set<LinearInequality> expanded = new HashSet<>(current);
+            expanded.addAll(transitivity(current));
+            expanded = removeDuplicates(expanded);
+            Set<LinearInequality> next = glbClosure ? glbLinearInequality(expanded) : lubLinearInequality(expanded);
+            if (next.equals(current))
+                return next;
+            current = next;
+        }
+
+        return current;
+    }
+
     public Set<LinearInequality> closureLub(Set<LinearInequality> inequalities) {
-        // Copier les inégalités initiales dans le résultat
-        Set<LinearInequality> result = new HashSet<>(inequalities);
-        // Étape 1: Supprimer les inégalités redondantes (même coefficient, constante différente)
-        result = lubLinearInequality(inequalities); 
-        // Étape 2: Appliquer la transitivité pour générer de nouvelles inégalités
-        Set<LinearInequality> newInequalities = transitivity(result);
-        // Ajouter les nouvelles inégalités au résultat
-        result.addAll(newInequalities);
-        // Étape 3: Nettoyer à nouveau les redondances après l'ajout des nouvelles inégalités
-        result = lubLinearInequality(result);
-        return result;
+        return closureFixpoint(inequalities, false);
     }
     public Set<LinearInequality> closureGlb(Set<LinearInequality> inequalities) {
-        Set<LinearInequality> result = new HashSet<>(inequalities);
-        result = glbLinearInequality(inequalities); 
-        Set<LinearInequality> newInequalities = transitivity(result);
-        result.addAll(newInequalities);
-        result = glbLinearInequality(result);
-        return result;
+        return closureFixpoint(inequalities, true);
     }
     public Set<LinearInequality> transitivity(Set<LinearInequality> inequalities) {
         // Copier les inégalités initiales dans le résultat

@@ -257,8 +257,9 @@ Ameliorations integrees dans ce rendu:
   - Contradictions détectées et converties en BOTTOM: les contraintes de type 0 <= c (avec c negatif) ne sont plus ignorées.
   - assume-parsing généralisé: Les expressions linéaires de part et d'autre de <= sont normalisées (+, -, negation, multiplication par constante), avec conservation de la limite à 2 variables.
   - état rendu immutable/private: top, bottom, inequalities et LinearInequality sont passés en private final avec collections immuables.
+  - La Closure passe en point fixe iteratif (avec borne d'iterations) pour mieux propager la transitivité avant stabilisation.
   - close et forgetIdentifier implementes (forget via projection conservative).
-  - satisfies retourne SATISFIED quand la contrainte est entaillee, sinon UNKNOWN.
+  - satisfies retourne SATISFIED quand la contrainte est entaillée, sinon UNKNOWN.
   - Suppression des traces System.out/System.err de debug.
 - Validation:
   - Ajout de tests d'algebre avec assertions pour les deux domaines cibles:
