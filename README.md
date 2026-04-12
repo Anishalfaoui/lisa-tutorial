@@ -266,6 +266,7 @@ Ameliorations integrees dans ce rendu:
   - Ajout de tests d'algebre avec assertions pour les deux domaines cibles:
     - src/test/java/it/unive/lisa/tutorial/ExtendedSignsAlgebraTest.java
     - src/test/java/it/unive/lisa/tutorial/TwoVariablesInequalityAlgebraTest.java
+  - Tests de régression ciblés ajoutés pour TwoVariablesInequality ( pour LUB, strong-update assign, contradiction-to-BOTTOM, assume parsing, closure fixpoint, smallStepSemantics).
 
 ## 8) Organisation Du Depot
 
