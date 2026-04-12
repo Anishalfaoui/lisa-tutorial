@@ -40,25 +40,33 @@ public class TwoVariablesInequality
         private static final double EPSILON = 1e-9;
     public static final TwoVariablesInequality TOP = new TwoVariablesInequality(true);
     public static final TwoVariablesInequality BOTTOM = new TwoVariablesInequality(false);
-    public boolean top=false,bottom=false;
+    private final boolean top;
+    private final boolean bottom;
+    private final Set<LinearInequality> inequalities;
+
+    private Set<LinearInequality> immutableConstraintSet(Set<LinearInequality> constraints) {
+        if (constraints.isEmpty())
+            return Collections.emptySet();
+        return Collections.unmodifiableSet(new HashSet<>(constraints));
+    }
+
     private TwoVariablesInequality(boolean top) {
-        if(top)
-            this.top = true;
-        else 
-            this.bottom = true;
-        this.inequalities = new HashSet<>();
+		this.top = top;
+		this.bottom = !top;
+        this.inequalities = Collections.emptySet();
 	}
     public TwoVariablesInequality(Set<LinearInequality>inequalities) {
         Set<LinearInequality> normalized = removeDuplicates(inequalities);
         if (hasContradiction(normalized)) {
+            this.top = false;
             this.bottom = true;
-            this.inequalities = new HashSet<>();
+            this.inequalities = Collections.emptySet();
             return;
         }
-        if(normalized.isEmpty())
-            this.top = true;
 
-        this.inequalities = normalized;
+        this.top = normalized.isEmpty();
+        this.bottom = false;
+        this.inequalities = immutableConstraintSet(normalized);
 	}
 
 
@@ -158,9 +166,7 @@ public class TwoVariablesInequality
             if (Math.abs(entry.getValue()) > EPSILON)
                 cleanedCoefficients.put(entry.getKey(), entry.getValue());
 
-        LinearInequality normalized = new LinearInequality(cleanedCoefficients, inequality.constant);
-        normalized.setLessOrEqual(inequality.lessOrEqual);
-        return normalized;
+        return new LinearInequality(cleanedCoefficients, inequality.constant, inequality.lessOrEqual);
     }
 
     private boolean isContradictoryZeroConstraint(LinearInequality inequality) {
@@ -643,26 +649,37 @@ public class TwoVariablesInequality
         }
         return restricted;
     }
-    public Set<LinearInequality> inequalities=new HashSet<>();
-
-
     /**
      * Classe représentant une inégalité linéaire ax + by ≤ c
     */
-    public static class LinearInequality {
+    public static final class LinearInequality {
         // Coefficients des variables (ax + by)
-        public Map<Identifier, Double> coefficients;
-        public boolean lessOrEqual = true;
+        private final Map<Identifier, Double> coefficients;
+        private final boolean lessOrEqual;
         // Constante c dans ax + by ≤ c
-        private double constant;
+        private final double constant;
 
         public LinearInequality(Map<Identifier, Double> coefficients, double constant) {
-            this.coefficients = new HashMap<>(coefficients);
-            this.constant = constant;
+            this(coefficients, constant, true);
         }
-        public void setLessOrEqual(boolean lessOrEqual) {
+        public LinearInequality(Map<Identifier, Double> coefficients, double constant, boolean lessOrEqual) {
+            this.coefficients = Collections.unmodifiableMap(new HashMap<>(coefficients));
+            this.constant = constant;
             this.lessOrEqual = lessOrEqual;
         }
+
+        public Map<Identifier, Double> getCoefficients() {
+            return coefficients;
+        }
+
+        public double getConstant() {
+            return constant;
+        }
+
+        public boolean isLessOrEqual() {
+            return lessOrEqual;
+        }
+
         public boolean isEqualCoefficients(LinearInequality other) {
             return this.coefficients.equals(other.coefficients);
         }
