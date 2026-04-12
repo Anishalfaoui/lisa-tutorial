@@ -35,6 +35,7 @@ import it.unive.lisa.util.representation.StructuredRepresentation;
 public class TwoVariablesInequality 	
 		
 		implements ValueDomain<TwoVariablesInequality> {
+        private static final double EPSILON = 1e-9;
     public static final TwoVariablesInequality TOP = new TwoVariablesInequality(true);
     public static final TwoVariablesInequality BOTTOM = new TwoVariablesInequality(false);
     public boolean top=false,bottom=false;
@@ -46,9 +47,16 @@ public class TwoVariablesInequality
         this.inequalities = new HashSet<>();
 	}
     public TwoVariablesInequality(Set<LinearInequality>inequalities) {
-        if(inequalities.isEmpty())
+        Set<LinearInequality> normalized = removeDuplicates(inequalities);
+        if (hasContradiction(normalized)) {
+            this.bottom = true;
+            this.inequalities = new HashSet<>();
+            return;
+        }
+        if(normalized.isEmpty())
             this.top = true;
-        this.inequalities = removeDuplicates(inequalities);
+
+        this.inequalities = normalized;
 	}
 
 
@@ -139,6 +147,49 @@ public class TwoVariablesInequality
         return false;
     }
 
+    private LinearInequality normalizeInequality(LinearInequality inequality) {
+        if (inequality == null)
+            return null;
+
+        Map<Identifier, Double> cleanedCoefficients = new HashMap<>();
+        for (Map.Entry<Identifier, Double> entry : inequality.coefficients.entrySet())
+            if (Math.abs(entry.getValue()) > EPSILON)
+                cleanedCoefficients.put(entry.getKey(), entry.getValue());
+
+        LinearInequality normalized = new LinearInequality(cleanedCoefficients, inequality.constant);
+        normalized.setLessOrEqual(inequality.lessOrEqual);
+        return normalized;
+    }
+
+    private boolean isContradictoryZeroConstraint(LinearInequality inequality) {
+        if (!inequality.coefficients.isEmpty())
+            return false;
+
+        if (inequality.lessOrEqual)
+            return inequality.constant < -EPSILON;
+
+        return inequality.constant <= EPSILON;
+    }
+
+    private boolean isAlwaysTrueZeroConstraint(LinearInequality inequality) {
+        if (!inequality.coefficients.isEmpty())
+            return false;
+
+        if (inequality.lessOrEqual)
+            return inequality.constant >= -EPSILON;
+
+        return inequality.constant > EPSILON;
+    }
+
+    private boolean hasContradiction(Set<LinearInequality> constraints) {
+        for (LinearInequality inequality : constraints) {
+            LinearInequality normalized = normalizeInequality(inequality);
+            if (normalized != null && isContradictoryZeroConstraint(normalized))
+                return true;
+        }
+        return false;
+    }
+
     private Set<LinearInequality> commonUpperBoundConstraints(
             Set<LinearInequality> leftConstraints,
             Set<LinearInequality> rightConstraints) {
@@ -158,7 +209,10 @@ public class TwoVariablesInequality
             return this;
         Set<LinearInequality> updated = new HashSet<>(inequalities);
         updated.add(inequality);
-        return new TwoVariablesInequality(closureGlb(removeDuplicates(updated)));
+        Set<LinearInequality> closed = closureGlb(removeDuplicates(updated));
+        if (hasContradiction(closed))
+            return BOTTOM;
+        return new TwoVariablesInequality(closed);
     }
 
     private LinearInequality parseLeq(ValueExpression expression) {
@@ -308,22 +362,14 @@ public class TwoVariablesInequality
         // GO TRHOW the inequalities and remove the equivalent ones 
         Set<LinearInequality> result = new HashSet<>();
         for (LinearInequality inequality : inequalities) {
-            boolean isEquivalent = false;
-            for (LinearInequality existingInequality : result) {
-                if (inequality.equals(existingInequality)) {
-                    isEquivalent = true;
-                    break;
-                }
-            }
-            if (!isEquivalent) {
-                if(inequality.coefficients.size() == 0 
-                || (inequality.coefficients.size() == 1 && inequality.coefficients.values().
-                        stream().anyMatch(v -> v == 0.0))) {
-                    // Skip the inequality if it has a coefficient of  in format 0x <= c
-                    continue;
-                }
-                result.add(inequality);
-            }
+            LinearInequality normalized = normalizeInequality(inequality);
+            if (normalized == null)
+                continue;
+
+            if (isAlwaysTrueZeroConstraint(normalized))
+                continue;
+
+            result.add(normalized);
         }
         return result;
     }
