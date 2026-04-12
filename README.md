@@ -255,6 +255,7 @@ Ameliorations integrees dans ce rendu:
   - lub corrigé: la jointure ne fait plus union de contraintes; elle conserve uniquement les contraintes liées par les deux etats.
   - assign corrigé en strong-update: les anciennes contraintes sur la variable assignées sont oubliées avant l'ajout des nouvelles contraintes.
   - Contradictions détectées et converties en BOTTOM: les contraintes de type 0 <= c (avec c negatif) ne sont plus ignorées.
+  - assume-parsing généralisé: Les expressions linéaires de part et d'autre de <= sont normalisées (+, -, negation, multiplication par constante), avec conservation de la limite à 2 variables.
   - close et forgetIdentifier implementes (forget via projection conservative).
   - satisfies retourne SATISFIED quand la contrainte est entaillee, sinon UNKNOWN.
   - Suppression des traces System.out/System.err de debug.

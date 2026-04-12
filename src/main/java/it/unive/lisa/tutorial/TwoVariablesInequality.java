@@ -26,8 +26,10 @@ import it.unive.lisa.symbolic.value.UnaryExpression;
 import it.unive.lisa.symbolic.value.ValueExpression;
 import it.unive.lisa.symbolic.value.operator.AdditionOperator;
 import it.unive.lisa.symbolic.value.operator.MultiplicationOperator;
+import it.unive.lisa.symbolic.value.operator.SubtractionOperator;
 import it.unive.lisa.symbolic.value.operator.binary.BinaryOperator;
 import it.unive.lisa.symbolic.value.operator.binary.ComparisonLe;
+import it.unive.lisa.symbolic.value.operator.unary.NumericNegation;
 import it.unive.lisa.util.datastructures.regex.TopAtom;
 import it.unive.lisa.util.representation.StringRepresentation;
 import it.unive.lisa.util.representation.StructuredRepresentation;
@@ -215,6 +217,107 @@ public class TwoVariablesInequality
         return new TwoVariablesInequality(closed);
     }
 
+    private static class LinearForm {
+        private final Map<Identifier, Double> coefficients;
+        private final double constant;
+        private final boolean supported;
+
+        private LinearForm(Map<Identifier, Double> coefficients, double constant, boolean supported) {
+            this.coefficients = coefficients;
+            this.constant = constant;
+            this.supported = supported;
+        }
+    }
+
+    private LinearForm unsupportedLinearForm() {
+        return new LinearForm(new HashMap<>(), 0.0, false);
+    }
+
+    private LinearForm constantLinearForm(double constant) {
+        return new LinearForm(new HashMap<>(), constant, true);
+    }
+
+    private LinearForm identifierLinearForm(Identifier identifier) {
+        Map<Identifier, Double> coefficients = new HashMap<>();
+        coefficients.put(identifier, 1.0);
+        return new LinearForm(coefficients, 0.0, true);
+    }
+
+    private LinearForm combineLinearForms(LinearForm left, LinearForm right, double rightScale) {
+        if (!left.supported || !right.supported)
+            return unsupportedLinearForm();
+
+        Map<Identifier, Double> coefficients = new HashMap<>(left.coefficients);
+        for (Map.Entry<Identifier, Double> entry : right.coefficients.entrySet())
+            coefficients.merge(entry.getKey(), rightScale * entry.getValue(), Double::sum);
+
+        return new LinearForm(coefficients, left.constant + rightScale * right.constant, true);
+    }
+
+    private LinearForm scaleLinearForm(LinearForm form, double scale) {
+        if (!form.supported)
+            return unsupportedLinearForm();
+
+        Map<Identifier, Double> coefficients = new HashMap<>();
+        for (Map.Entry<Identifier, Double> entry : form.coefficients.entrySet())
+            coefficients.put(entry.getKey(), entry.getValue() * scale);
+
+        return new LinearForm(coefficients, form.constant * scale, true);
+    }
+
+    private Double numericConstant(SymbolicExpression expression) {
+        if (!(expression instanceof Constant))
+            return null;
+
+        Object value = ((Constant) expression).getValue();
+        if (!(value instanceof Integer))
+            return null;
+
+        return ((Integer) value).doubleValue();
+    }
+
+    private LinearForm parseLinearForm(SymbolicExpression expression) {
+        if (expression instanceof Identifier)
+            return identifierLinearForm((Identifier) expression);
+
+        Double constant = numericConstant(expression);
+        if (constant != null)
+            return constantLinearForm(constant);
+
+        if (expression instanceof UnaryExpression) {
+            UnaryExpression unaryExpression = (UnaryExpression) expression;
+            if (unaryExpression.getOperator() instanceof NumericNegation)
+                return scaleLinearForm(parseLinearForm(unaryExpression.getExpression()), -1.0);
+
+            return unsupportedLinearForm();
+        }
+
+        if (!(expression instanceof BinaryExpression))
+            return unsupportedLinearForm();
+
+        BinaryExpression binaryExpression = (BinaryExpression) expression;
+        SymbolicExpression left = binaryExpression.getLeft();
+        SymbolicExpression right = binaryExpression.getRight();
+
+        if (binaryExpression.getOperator() instanceof AdditionOperator)
+            return combineLinearForms(parseLinearForm(left), parseLinearForm(right), 1.0);
+
+        if (binaryExpression.getOperator() instanceof SubtractionOperator)
+            return combineLinearForms(parseLinearForm(left), parseLinearForm(right), -1.0);
+
+        if (binaryExpression.getOperator() instanceof MultiplicationOperator) {
+            Double leftConstant = numericConstant(left);
+            if (leftConstant != null)
+                return scaleLinearForm(parseLinearForm(right), leftConstant);
+
+            Double rightConstant = numericConstant(right);
+            if (rightConstant != null)
+                return scaleLinearForm(parseLinearForm(left), rightConstant);
+        }
+
+        return unsupportedLinearForm();
+    }
+
     private LinearInequality parseLeq(ValueExpression expression) {
         if (!(expression instanceof BinaryExpression))
             return null;
@@ -223,52 +326,23 @@ public class TwoVariablesInequality
         if (!(binaryExpression.getOperator() instanceof ComparisonLe))
             return null;
 
-        SymbolicExpression left = binaryExpression.getLeft();
-        SymbolicExpression right = binaryExpression.getRight();
-
-        if (left instanceof Identifier && right instanceof Identifier) {
-            Map<Identifier, Double> coefficients = new HashMap<>();
-            coefficients.put((Identifier) left, 1.0);
-            coefficients.put((Identifier) right, -1.0);
-            return new LinearInequality(coefficients, 0.0);
-        }
-
-        if (!(right instanceof Constant))
+        LinearForm left = parseLinearForm(binaryExpression.getLeft());
+        LinearForm right = parseLinearForm(binaryExpression.getRight());
+        if (!left.supported || !right.supported)
             return null;
 
-        Object rightValue = ((Constant) right).getValue();
-        if (!(rightValue instanceof Integer))
+        Map<Identifier, Double> coefficients = new HashMap<>(left.coefficients);
+        for (Map.Entry<Identifier, Double> entry : right.coefficients.entrySet())
+            coefficients.merge(entry.getKey(), -entry.getValue(), Double::sum);
+
+        LinearInequality parsed = normalizeInequality(new LinearInequality(coefficients, right.constant - left.constant));
+        if (parsed == null)
             return null;
 
-        double constant = ((Integer) rightValue).doubleValue();
-        if (!(left instanceof BinaryExpression))
+        if (parsed.coefficients.size() > 2)
             return null;
 
-        BinaryExpression leftExpr = (BinaryExpression) left;
-        if (!(leftExpr.getOperator() instanceof AdditionOperator)
-                || !(leftExpr.getLeft() instanceof BinaryExpression)
-                || !(leftExpr.getRight() instanceof BinaryExpression))
-            return null;
-
-        BinaryExpression axExpr = (BinaryExpression) leftExpr.getLeft();
-        BinaryExpression byExpr = (BinaryExpression) leftExpr.getRight();
-        if (!(axExpr.getOperator() instanceof MultiplicationOperator)
-                || !(byExpr.getOperator() instanceof MultiplicationOperator)
-                || !(axExpr.getLeft() instanceof Constant)
-                || !(axExpr.getRight() instanceof Identifier)
-                || !(byExpr.getLeft() instanceof Constant)
-                || !(byExpr.getRight() instanceof Identifier))
-            return null;
-
-        Object aValue = ((Constant) axExpr.getLeft()).getValue();
-        Object bValue = ((Constant) byExpr.getLeft()).getValue();
-        if (!(aValue instanceof Integer) || !(bValue instanceof Integer))
-            return null;
-
-        Map<Identifier, Double> coefficients = new HashMap<>();
-        coefficients.put((Identifier) axExpr.getRight(), ((Integer) aValue).doubleValue());
-        coefficients.put((Identifier) byExpr.getRight(), ((Integer) bValue).doubleValue());
-        return new LinearInequality(coefficients, constant);
+        return parsed;
     }
 
     @Override
