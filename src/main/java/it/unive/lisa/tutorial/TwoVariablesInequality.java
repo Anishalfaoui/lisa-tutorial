@@ -139,6 +139,20 @@ public class TwoVariablesInequality
         return false;
     }
 
+    private Set<LinearInequality> commonUpperBoundConstraints(
+            Set<LinearInequality> leftConstraints,
+            Set<LinearInequality> rightConstraints) {
+        Set<LinearInequality> candidates = new HashSet<>(leftConstraints);
+        candidates.addAll(rightConstraints);
+
+        Set<LinearInequality> common = new HashSet<>();
+        for (LinearInequality candidate : candidates)
+            if (isEntailedBy(candidate, leftConstraints) && isEntailedBy(candidate, rightConstraints))
+                common.add(candidate);
+
+        return common;
+    }
+
     private TwoVariablesInequality withAddedInequality(LinearInequality inequality) {
         if (isBottom() || inequality == null)
             return this;
@@ -441,18 +455,21 @@ public class TwoVariablesInequality
     }
     @Override
     public TwoVariablesInequality lub(TwoVariablesInequality other) throws SemanticException {
-        // union est l'intersection des deux ensembles 
+        // Keep only constraints that are entailed by both operands.
         if(isTop() || other.isTop())
             return TOP;
         if(isBottom())
             return other;
         if(other.isBottom())
             return this;
-         // Créer un nouvel ensemble qui est l'union des deux ensembles d'inégalités
-        Set<LinearInequality> unionInequalities = new HashSet<>(this.inequalities);
-        unionInequalities.addAll(other.inequalities);
-        var l = new TwoVariablesInequality(closureLub(removeDuplicates(unionInequalities)));
-        return l;
+
+        Set<LinearInequality> thisClosed = closureGlb(removeDuplicates(new HashSet<>(this.inequalities)));
+        Set<LinearInequality> otherClosed = closureGlb(removeDuplicates(new HashSet<>(other.inequalities)));
+        Set<LinearInequality> commonUpperBound = commonUpperBoundConstraints(thisClosed, otherClosed);
+        if (commonUpperBound.isEmpty())
+            return TOP;
+
+        return new TwoVariablesInequality(closureLub(removeDuplicates(commonUpperBound)));
     }
     @Override
     public TwoVariablesInequality glb(TwoVariablesInequality other) throws SemanticException {

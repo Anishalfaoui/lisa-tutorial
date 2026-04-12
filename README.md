@@ -252,6 +252,7 @@ Ameliorations integrees dans ce rendu:
   - assume sur x <= c raffine l'etat via glb (au lieu d'elargir).
 - TwoVariablesInequality:
   - lessOrEqual implemente via fermeture + verification d'entailment des contraintes.
+  - lub corrigé: la jointure ne fait plus union de contraintes; elle conserve uniquement les contraintes liées par les deux etats.
   - close et forgetIdentifier implementes (forget via projection conservative).
   - satisfies retourne SATISFIED quand la contrainte est entaillee, sinon UNKNOWN.
   - Suppression des traces System.out/System.err de debug.
