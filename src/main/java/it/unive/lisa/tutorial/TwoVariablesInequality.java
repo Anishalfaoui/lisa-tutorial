@@ -236,25 +236,28 @@ public class TwoVariablesInequality
         SemanticOracle oracle) throws SemanticException {
         if(isSpecialIdentifier(identifier))
             return this;
+
+        TwoVariablesInequality strongUpdated = forgetIdentifier(identifier);
+
         if(valueExpression instanceof Identifier){
             Identifier id = (Identifier) valueExpression;
             Map<Identifier, Double> coefficients = new HashMap<>();
             coefficients.put(identifier, 1.0);
             coefficients.put(id, -1.0);
             LinearInequality inequality = new LinearInequality(coefficients, 0.0);
-            return withAddedInequality(inequality);
+            return strongUpdated.withAddedInequality(inequality);
         }
         if(valueExpression instanceof Constant){
             Constant c = (Constant) valueExpression;
             if (!(c.getValue() instanceof Integer))
-                return this;
+                return strongUpdated;
             Map<Identifier, Double> coefficients = new HashMap<>();
             coefficients.put(identifier, 1.0);
             LinearInequality inequality = new LinearInequality(coefficients, (Integer)(c.getValue()));
             Map<Identifier, Double> reverse = new HashMap<>();
             reverse.put(identifier, -1.0);
             LinearInequality dual = new LinearInequality(reverse, -((Integer) c.getValue()));
-            return withAddedInequality(inequality).withAddedInequality(dual);
+            return strongUpdated.withAddedInequality(inequality).withAddedInequality(dual);
         }
         if(valueExpression instanceof BinaryExpression){
             BinaryExpression binaryExpression = (BinaryExpression) valueExpression;
@@ -272,7 +275,7 @@ public class TwoVariablesInequality
                 reverse.put(y, 1.0);
                 reverse.put(identifier, -1.0);
                 LinearInequality dual = new LinearInequality(reverse, -((Integer) c.getValue()));
-                return withAddedInequality(inequality).withAddedInequality(dual);
+                return strongUpdated.withAddedInequality(inequality).withAddedInequality(dual);
             }
             // handle the case of x = b*y + c
             if(binaryExpression.getOperator() instanceof AdditionOperator &&  binaryExpression.getRight() instanceof Constant){
@@ -284,11 +287,13 @@ public class TwoVariablesInequality
                         Constant b = (Constant) leftExpr.getLeft();
                         Identifier y = (Identifier) leftExpr.getRight();
                         Constant c = (Constant) binaryExpression.getRight();
+                        if (!(b.getValue() instanceof Integer) || !(c.getValue() instanceof Integer))
+                            return strongUpdated;
                         Map<Identifier, Double> coefficients = new HashMap<>();
                         coefficients.put(identifier, 1.0);
                         coefficients.put(y, -((Integer)b.getValue()).doubleValue());
                         LinearInequality inequality = new LinearInequality(coefficients, (Integer)(c.getValue()));
-                        return withAddedInequality(inequality);
+                        return strongUpdated.withAddedInequality(inequality);
                     }
                 }
                 
@@ -296,7 +301,7 @@ public class TwoVariablesInequality
             
             }
         }
-        return this;
+        return strongUpdated;
     }
 
     public Set<LinearInequality> removeDuplicates(Set<LinearInequality> inequalities) {
